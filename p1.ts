@@ -60,6 +60,7 @@ interface ViewType {
     // We save these when we make them to avoid the overhead
     // of looking up by id.
     squareElements: BoardMatrix<HTMLElement>;
+    moveRecord: HTMLElement[][];
 }
 
 // Information for a sprite that depends on state.
@@ -127,6 +128,7 @@ var spriteInfo: ConstantSpriteInfo[] = [];
 
 var view : ViewType = {
     squareElements: [],
+    moveRecord: [],
 }
 
 // The current state.
@@ -247,6 +249,42 @@ function makeArray<T>(n: number, val: T) : T[] {
 }
 
 // Functions to create HTML for the user interface.
+type Tag = string;
+type AttrName = string;
+type AttrValue = string;
+type AttrPair = [AttrName, AttrValue];
+type HtmlDesc = [Tag, AttrPair[], string | HtmlDesc[]];
+type HtmlTree = [HTMLElement, HtmlTree[]];
+type HtmlForest = HtmlTree[];
+
+function makeHtml(descr: HtmlDesc) : HtmlTree {
+    let [tag, atts, content] = descr;
+    let root = document.createElement(tag);
+    for (const [attrName, attrValue] of atts) {
+        let att = document.createAttribute(attrName);
+        att.value = attrValue;
+        root.setAttributeNode(att);
+    }
+    let htmlChildren: HtmlForest = [];
+    if (typeof content == 'string') {
+        root.innerText = content;
+    } else {
+        htmlChildren = makeHtmlForest(root, content);
+    }
+    let result: HtmlTree = [root, htmlChildren];
+    return result;
+}
+
+function makeHtmlForest(parent: HTMLElement, forest: HtmlDesc[]) : HtmlForest {
+    let htmlChildren: HtmlForest = [];
+    for (const subtree of forest) {
+        let child = makeHtml(subtree);
+        htmlChildren.push(child);
+        let childRoot = child[0];
+        parent.appendChild(childRoot);
+    }
+    return htmlChildren;
+}
 
 function makeHeaderRow(data: string[]) : HTMLElement {
     let tr = document.createElement("tr");
@@ -305,6 +343,34 @@ function makeRegularRow(rank: number) : HTMLElement {
     return tr;
 }
 
+
+function addMoveRecordRow() {
+    let num = view.moveRecord.length + 1;
+    const moveTable = document.getElementById("moves");
+    const forest: HtmlDesc[] =
+    [
+        ["tr", [], [
+            ["td",[["onclick", `showMoveNum(${num}, 0)`]], `${num}w:`],
+            ["td",[["onclick", `showMoveNum(${num}, 1)`]], `${num}b:`],
+            ]
+        ],
+    ];
+    let hforest = makeHtmlForest(moveTable!, forest);;
+    let hpair = [hforest[0][1][0][0], hforest[0][1][1][0]];
+    view.moveRecord.push(hpair);
+}
+
+function recordMove(aState: StateType, turn: Turn) {
+    let num = aState.moveNumber;
+    if ((view.moveRecord.length < num) || (aState.whoseMove == Clr.b)) {
+        addMoveRecordRow();
+    }
+    let recoreRow = view.moveRecord[num -1];
+    let item = recoreRow[aState.whoseMove];
+    let notation = turn2notation(aState, turn);
+    item.innerHTML = notation;
+}
+
 // Once-only initalization of the view object.
 // Its elements are null lists initially.
 // Create HTML elements, recording them in the 
@@ -321,6 +387,7 @@ function initializeView() {
     atbody?.appendChild(makeHeaderRow(["", "A", "B", "C", "D", "E", "F", "G", "H", ""]));
     atbody?.appendChild(makeCapturedRow(-1));
     atbody?.appendChild(makeCapturedRow(-2));
+
 }
 
 function getViewSquare(pos: Position) : HTMLElement {
@@ -378,6 +445,7 @@ function initializeState() {
     });
     state.spriteStateInfo = infos;
     states.push(state);
+    addMoveRecordRow();
 }
 
 function myLoaded() {
@@ -727,9 +795,23 @@ function updateViewAtLocation(pos: Position, color: Clr | null, kind: Kind) {
     square.innerHTML = newInner;
 }
 
+function updateAll(aState: StateType) {
+    let info = aState.spriteStateInfo;
+    for (let row = -2; row < 10; row++) {
+        for (let file = 0; file < 8; file++) {
+            let pos : Position = [file, row];
+            let sprite = getStateSpriteId(aState, pos);
+            if (sprite) {
+                updateViewAtLocation(pos, getSpriteColor(sprite), info[sprite].kind);
+            } else {
+                updateViewAtLocation(pos, null, Kind.P);
+            }
+        }
+    }
+}
+
 function updateView(aState: StateType, changedLocations: Position[]) {
     let info = aState.spriteStateInfo;
-    let board = aState.squareSprites;
     for (const pos of changedLocations) {
         let sprite = getStateSpriteId(aState, pos);
         if (sprite) {
@@ -761,6 +843,8 @@ function pos2algebraic([file, rank]:Position) : string {
 function turn2notation(aState:StateType, turn: Turn) : string {
     let {primary: {from: from, to: to}, secondary: sec}: Turn = turn;
     let info = aState.spriteStateInfo;
+    let whose = aState.whoseMove;
+    let num = aState.moveNumber;
 
     // Primary sprite
     let psprite: SpriteId = getStateSpriteId(aState, from);
@@ -778,9 +862,10 @@ function turn2notation(aState:StateType, turn: Turn) : string {
             }
         }
     }
-    let part1 = Kind[pkind]+pos2algebraic(from);
+    let part1 = `${num}${Clr[whose]}: ${Kind[pkind]}${pos2algebraic(from)}`;
     let destPart = pos2algebraic(to);
     let middlePart: string;
+    let enpassant = "";
     if (sec) {
         // Capture piece. We already covered castling above which is the
         // only non-capture case of secondary sprite.
@@ -792,12 +877,12 @@ function turn2notation(aState:StateType, turn: Turn) : string {
         // With ordinary capture the sfrom == to. It that is not the
         // case it is en passant.
         if (!posEq(to, sfrom)) {
-            middlePart += " e.p."
+            enpassant = " e.p."
         }
     } else {
         middlePart = "-"
     }
-    return part1 + middlePart + destPart;
+    return part1 + middlePart + destPart + enpassant;
 }
 
 function moveTurn(turn: Turn) {
@@ -808,12 +893,14 @@ function moveTurn(turn: Turn) {
     }
     let [newState, changedLocations] = stateAfterMove(turn, state, promoKind);
     updateView(newState, changedLocations);
+    recordMove(state, turn);
 
     // Interpret move in old state.
     let turnStr = turn2notation(state, turn);
     console.log(turnStr);
     state = newState;
     states.push(state);
+    stateIndex = states.length - 1;
 }
 
 function findInArray<T>(ray: T[], pred: (T) => boolean) : T | null {
@@ -844,7 +931,14 @@ function legalMove(sprite: SpriteId, pos: Position) {
     selectedSprite = SpriteId.None;
 }
 
+var stateIndex: number = 0;
+
 function doClick(file: number, rank: number) {
+    if (stateIndex != (states.length - 1)) {
+        updateAll(state);
+        stateIndex = states.length - 1;
+        alert("Syncing board to current state, try again.");
+    }
     try {
         let pos: Position = [file, rank];
 
@@ -874,4 +968,11 @@ function doClick(file: number, rank: number) {
         alert(`Got error=${error}, deselecting.`)
         selectedSprite = SpriteId.None;
     }
+}
+
+
+function showMoveNum(moveNum: number, color: Clr) {
+    stateIndex = (moveNum-1) * 2 + color;
+    selectedSprite = SpriteId.None;
+    updateAll(states[stateIndex]);
 }
