@@ -35,6 +35,10 @@
         th {
             background-color: rgb(214, 214, 250);
         }
+        .cmd {
+            background-color: rgb(214, 214, 250);
+            width:43em;
+        }
     </style>
     <head>
         <script src="out/p1.js"></script>
@@ -43,28 +47,26 @@
 
 <h2>Chess programmed in HTML/CSS/Typescript/Javascript.</h2>
 <table>
-    <tbody id="test">
-    </tbody>
-</table>
-<table>
     <tr>
         <td>
-<table id="chessTABLE">
-    <tbody id="chessBoard">
-    </tbody>
-</table>
-</td>
-<td>
-    <table class="move">
-        <tbody id="moves">
-            <tr class="move">
-                <th>White</th>
-                <th>Black</th>
-            </tr>
-        </tbody>
-    </table>
-</td>
-</tr>
+            <table id="chessTABLE">
+                <tbody id="chessBoard">
+                </tbody>
+            </table>
+        </td>
+        <td>
+            <table class="move">
+                <tbody id="moves">
+                    <tr class="move">
+                        <th>White</th>
+                        <th>Black</th>
+                    </tr>
+                </tbody>
+            </table>
+        </td>
+    </tr>
+    <tr> <td id="commands"><input id="command" type="text" class="cmd"> </td> </tr>
+    <tr> <td id="messages">Messages go here.</td> </tr>
 </table>
 <script>
     window.onload = function () {

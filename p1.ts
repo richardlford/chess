@@ -147,6 +147,8 @@ var states: StateType[] = [];
 
 var selectedSprite: SpriteId = 0;
 
+var messages: HTMLElement | null = null;
+
 // -------------------------- Functions -----------------------
 
 function getSpriteInfo(id: SpriteId) : ConstantSpriteInfo {
@@ -387,7 +389,7 @@ function initializeView() {
     atbody?.appendChild(makeHeaderRow(["", "A", "B", "C", "D", "E", "F", "G", "H", ""]));
     atbody?.appendChild(makeCapturedRow(-1));
     atbody?.appendChild(makeCapturedRow(-2));
-
+    messages = document.getElementById("messages");
 }
 
 function getViewSquare(pos: Position) : HTMLElement {
@@ -454,6 +456,15 @@ function myLoaded() {
     makeSprites();
     resetView();
     initializeState();
+    let elm = document!.getElementById("command");
+    elm!.addEventListener("keyup", 
+        function(event: KeyboardEvent) {
+            event.preventDefault();
+            if (event.code == "Enter") {
+                processCommand();
+            }
+        }
+    );
 }
 
 function outOfRange(arg: number | number[]) : boolean {
@@ -832,10 +843,26 @@ function isPromotion(aState: StateType, turn: Turn) : boolean {
     return (oldKind == Kind.P) && (tpos[1] == promoRank);
 }
 
-function pos2algebraic([file, rank]:Position) : string {
+function pos2alg([file, rank]:Position) : string {
     let fileStr = "abcdefgh"[file];
-    let rankStr = "12345678"[rank];
+    let rankList = 
+        ["-1", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
+    let rankStr = rankList[rank + 2];
     return fileStr + rankStr;
+}
+
+function alg2pos(alg: string) : Position {
+    let fileStr = alg.substring(0, 1);
+    let rankStr = alg.substring(1);
+    let file = "abcdefgh".indexOf(fileStr);
+    let rankList = 
+        ["-1", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"];
+    let rank = rankList.indexOf(rankStr) - 2;
+    return [file, rank];
+}
+
+function turn2alg({ primary:{to: dest}}: Turn) : string {
+    return pos2alg(dest);
 }
 
 // Produce string representation of a turn in standard
@@ -850,20 +877,21 @@ function turn2notation(aState:StateType, turn: Turn) : string {
     let psprite: SpriteId = getStateSpriteId(aState, from);
     let pspriteInfo = info[psprite];
     let pkind: Kind = pspriteInfo.kind;
+    let part0 = `${num}${Clr[whose]}: `
     if (pkind == Kind.K) {
         // Might be castling.
         let dx = to[0]-from[0];
         if (Math.abs(dx) == 2) {
             // It is castling.
             if (dx > 0) {
-                return "O-O"; // King Side
+                return part0 + "O-O"; // King Side
             } else {
-                return "O-O-O"; // Queen Side
+                return part0 + "O-O-O"; // Queen Side
             }
         }
     }
-    let part1 = `${num}${Clr[whose]}: ${Kind[pkind]}${pos2algebraic(from)}`;
-    let destPart = pos2algebraic(to);
+    let part1 = `${Kind[pkind]}${pos2alg(from)}`;
+    let destPart = pos2alg(to);
     let middlePart: string;
     let enpassant = "";
     if (sec) {
@@ -882,7 +910,7 @@ function turn2notation(aState:StateType, turn: Turn) : string {
     } else {
         middlePart = "-"
     }
-    return part1 + middlePart + destPart + enpassant;
+    return part0 + part1 + middlePart + destPart + enpassant;
 }
 
 function moveTurn(turn: Turn) {
@@ -931,13 +959,18 @@ function legalMove(sprite: SpriteId, pos: Position) {
     selectedSprite = SpriteId.None;
 }
 
+function showMessage(msg: string) {
+    messages!.innerHTML = msg;
+}
+
 var stateIndex: number = 0;
 
 function doClick(file: number, rank: number) {
+    showMessage("Msgs:");
     if (stateIndex != (states.length - 1)) {
         updateAll(state);
         stateIndex = states.length - 1;
-        alert("Syncing board to current state, try again.");
+        showMessage("Syncing board to current state, try again.");
     }
     try {
         let pos: Position = [file, rank];
@@ -965,14 +998,60 @@ function doClick(file: number, rank: number) {
             }
         }
     } catch (error) {
-        alert(`Got error=${error}, deselecting.`)
+        showMessage(`Got error=${error}, deselecting.`);
         selectedSprite = SpriteId.None;
     }
 }
 
-
 function showMoveNum(moveNum: number, color: Clr) {
-    stateIndex = (moveNum-1) * 2 + color;
+    stateIndex = Math.min((moveNum-1) * 2 + color, states.length - 1);
     selectedSprite = SpriteId.None;
     updateAll(states[stateIndex]);
 }
+
+function processCommand() {
+    let elm: HTMLTextAreaElement = document.getElementById("command") as HTMLTextAreaElement;
+    let val = elm.value;
+    elm.value = "";
+    let result = eval(val);
+    showMessage(`eval(${val})=${result}`);
+}
+
+// Here are short commands to invoke from the input window.
+
+// Potential moves of piece at alg.
+function pmoves(alg: string) : string {
+    let pos = alg2pos(alg);
+    try {
+        let pmvs: Turn[] = potentialMoves(false, false, pos, state);
+        let algs = pmvs.map(turn2alg);
+        return algs.join(" ");
+    } catch (error) {
+        return `Error: ${error}`;
+    }
+}
+
+// Potential moves of piece at alg.
+function pturns(alg: string) : string {
+    let pos = alg2pos(alg);
+    try {
+        let pmvs: Turn[] = potentialMoves(false, false, pos, state);
+        let algs = pmvs.map((t: Turn) => turn2notation(state, t));
+        return algs.join(";");
+    } catch (error) {
+        return `Error: ${error}`;
+    }
+}
+
+// Potential captures of piece at alg.
+function pcaps(alg: string) : string {
+    let pos = alg2pos(alg);
+    try {
+        let pmvs: Turn[] = potentialMoves(true, true, pos, state);
+        let algs = pmvs.map(turn2alg);
+        return algs.join(" ");
+    } catch (error) {
+        return `Error: ${error}`;
+    }
+}
+
