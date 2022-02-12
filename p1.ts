@@ -516,11 +516,12 @@ function posEq([f1, r1]:Position, [f2,r2]: Position) : boolean {
     return (f1==f2) && (r1==r2);
 }
 
-// Returns potential moves and id of captured Pawn, if any]
+// Returns potential moves
+// If captureOnly is specified, then include locations that are attacked
+// by the pawn, but not others.
 function pawnmoves(sprite: SpriteId, defence: boolean, captureOnly: boolean, loc: Position, 
     aState: StateType): Turn[] {
     let result: Turn[] = [];
-    let capturedPawn: SpriteId = SpriteId.None;
     let [file, rank] = loc;
     let myColor = getSpriteColor(sprite);
     myAssert(!captureOnly|| defence, "If captureOnly, defense must be on!");
@@ -580,7 +581,12 @@ function pawnmoves(sprite: SpriteId, defence: boolean, captureOnly: boolean, loc
                         let enpMove: Move = { from: enpLoc, to: capLoc};
                         let turn: Turn = { primary: pmove, secondary: enpMove};
                         result.push(turn);
-                        capturedPawn = aState.enPassantPawn;
+                    } else {
+                        // Nothing to capture, but include it if captureOnly.
+                        if (captureOnly) {
+                            let turn: Turn = { primary: pmove, secondary: null };
+                            result.push(turn);
+                        }
                     }
                 }
             }
@@ -589,13 +595,17 @@ function pawnmoves(sprite: SpriteId, defence: boolean, captureOnly: boolean, loc
     return result;
 }
 
-function underAttack(aState: StateType, pos: Position) : boolean {
-    // TODO
-    return false;
+// Is the location pos under attack from the opponent of color?
+function underAttack(aState: StateType, pos: Position, color: Clr) : boolean {
+    let alg = pos2alg(pos);
+    let opponent: Clr = 1 - color;
+    let attSet: Set<string> = attackedSet(aState, opponent);
+    let result = attSet.has(alg);
+    return result;
 }
 
-function castleOK(aState: StateType, kingSide: boolean) : boolean {
-    let color: Clr = aState.whoseMove;
+// Is it ok for color to castle on the specified side?
+function castleOK(aState: StateType, kingSide: boolean, color: Clr) : boolean {
     let r1 = color==Clr.w ? SpriteId.wR1 : SpriteId.bR1;
     let r8 = color==Clr.w ? SpriteId.wR8 : SpriteId.bR8;
     let k = color==Clr.w ? SpriteId.wK5 : SpriteId.bK5;
@@ -613,7 +623,7 @@ function castleOK(aState: StateType, kingSide: boolean) : boolean {
         if (sprite) {
             return false; // Not vacant.
         }
-        if (underAttack(aState, pos)) {
+        if (underAttack(aState, pos, color)) {
             return false;
         }
     }
@@ -621,8 +631,11 @@ function castleOK(aState: StateType, kingSide: boolean) : boolean {
     return true;
 }
 
+var majorMoveDepth: number = 0;
+
 function majorPieceMoves(sprite: SpriteId, defence: boolean, loc: Position, 
     aState: StateType): Turn[] {
+    majorMoveDepth += 1;
     let result: Turn[] = [];
     let [file, rank] = loc;
     let myColor = getSpriteColor(sprite);
@@ -672,10 +685,10 @@ function majorPieceMoves(sprite: SpriteId, defence: boolean, loc: Position,
             }
         }
     }
-    if (myKind == Kind.K) {
+    if ((myKind == Kind.K) && (majorMoveDepth < 2)) {
         // Check for castling possibilities.
         for (const kingSide of [false, true]) {
-            if (castleOK(aState, kingSide)) {
+            if (castleOK(aState, kingSide, myColor)) {
                 let kdx = kingSide ? 2 : -2;
                 let rdx = kingSide ? -2 : 3;
                 let rstartx = kingSide ? 7 : 0;
@@ -689,6 +702,7 @@ function majorPieceMoves(sprite: SpriteId, defence: boolean, loc: Position,
             }
         }
     }
+    majorMoveDepth -= 1;
     return result;
 }
 
@@ -702,6 +716,47 @@ function potentialMoves(defence: boolean, captureOnly: boolean, loc: Position,
     } else {
         return majorPieceMoves(sprite, defence, loc, aState);
     }
+}
+
+// Return a list of all of the sprites of the given color that are active.
+function spritesOfColor(aState: StateType, color: Clr) : SpriteId[] {
+    let result: SpriteId[] = [];
+    let begin = (color == Clr.w) ? SpriteId.wR1 : SpriteId.bR1;
+    let end = (color == Clr.w) ? SpriteId.wP8 : SpriteId.bP8;
+    let info = aState.spriteStateInfo;
+    for (let sprite = begin; sprite <= end; sprite++) {
+        let pos = info[sprite].position;
+        if (!outOfRange(pos)) {
+            result.push(sprite);
+        }
+    }
+    return result;
+}
+
+// Return a Set of locations (expressed as algrebraic names) 
+// attacked by pieces of the specified color.
+function attackedSet(aState: StateType, color: Clr) : Set<string> {
+    let locs : Set<string> = new Set();
+    let active = spritesOfColor(aState, color);
+    let info = aState.spriteStateInfo;
+    for (const sprite of active) {
+        let pos = info[sprite].position;
+        let turns: Turn[] = potentialMoves(true, true, pos, aState);
+        let algs = turns.map(turn2alg);
+        for (const alg of algs) {
+            locs.add(alg);
+        }
+    }
+    return locs;
+}
+
+function attackedAlgs(aState: StateType, color: Clr) : string[] {
+    return [...attackedSet(aState, color)];
+}
+
+function attackedLocs(aState: StateType, color: Clr) : Position[] {
+    let algs = attackedAlgs(aState, color);
+    return algs.map(alg2pos);
 }
 
 // Compute the location to display a captured piece.
@@ -1050,6 +1105,29 @@ function pcaps(alg: string) : string {
         let pmvs: Turn[] = potentialMoves(true, true, pos, state);
         let algs = pmvs.map(turn2alg);
         return algs.join(" ");
+    } catch (error) {
+        return `Error: ${error}`;
+    }
+}
+
+// Return list of active sprites of given color.
+function sclr(color: string) : string {
+    try {
+        let clr = Clr[color];
+        let slist: SpriteId[] = spritesOfColor(state, clr);
+        let snames = slist.map((id)=>getSpriteInfo(id).name);
+        return snames.join(" ");
+    } catch (error) {
+        return `Error: ${error}`;
+    }
+}
+
+// Return list of locations attacked by given color
+function atts(color: string) : string {
+    try {
+        let clr = Clr[color];
+        let locs = attackedLocs(state, clr).sort();
+        return locs.join(" ");
     } catch (error) {
         return `Error: ${error}`;
     }
