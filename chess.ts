@@ -413,6 +413,10 @@ function setStateSpriteId(aState: StateType, pos: Position, spriteNum: SpriteId)
     aState.squareSprites[rank2boardRow(rank)][file] = spriteNum;
 }
 
+function getStatePos(aState: StateType, sprite: SpriteId) : Position {
+    return aState.spriteStateInfo[sprite].position;
+}
+
 function resetView() {
     // First clear the whole board.
     view.squareElements.forEach(row => {
@@ -467,6 +471,7 @@ function myLoaded() {
             }
         }
     );
+    showMessage("Click the piece you want to move.")
 }
 
 function outOfRange(arg: number | number[]) : boolean {
@@ -1041,11 +1046,13 @@ function anyLegalMoves(aState: StateType) : boolean {
     let info = aState.spriteStateInfo;
     for (const sprite of active) {
         let pos = info[sprite].position;
-        let turns: Turn[] = potentialMoves(true, true, pos, aState);
-        let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, pos);
-        if (turn != null) {
-            // We found a legal move.
-            return true;
+        let turns: Turn[] = potentialMoves(false, false, pos, aState);
+        for (const {primary: {to: dest}} of turns) {
+            let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, dest);
+            if (turn != null) {
+                // We found a legal move.
+                return true;
+            }
         }
     }
     return false;
@@ -1060,11 +1067,13 @@ function allLegalMoves(aState: StateType) : Turn[] {
     let info = aState.spriteStateInfo;
     for (const sprite of active) {
         let pos = info[sprite].position;
-        let turns: Turn[] = potentialMoves(true, true, pos, aState);
-        let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, pos);
-        if (turn != null) {
-            // We found a legal move.
-            result.push(turn);
+        let turns: Turn[] = potentialMoves(false, false, pos, aState);
+        for (const {primary: {to: dest}} of turns) {
+            let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, dest);
+            if (turn != null) {
+                // We found a legal move.
+                result.push(turn);
+            }
         }
     }
     return result;
@@ -1103,9 +1112,11 @@ function tryMove(aState: StateType, sprite: SpriteId, pos: Position) {
 
     if (!anyLegalMoves(state)) {
         if (inCheck(state, state.whoseMove)) {
+            alert("Checkmate!!!")
             throw "Checkmate!!!";
         } else {
-            throw "Stalemate";
+            alert("Statemate!")
+            throw "Stalemate.";
         }
     }
 }
@@ -1135,21 +1146,24 @@ function doClick(file: number, rank: number) {
                     throw "You can't move to a space with your own piece";
                 } else {
                        tryMove(state, selectedSprite, pos);
-                }
+                       showMessage("OK. Click the piece you want to move.")
+                    }
             } else {
                 // No sprite selected.
                 selectedSprite = sprite;
+                showMessage(`Piece at ${pos2alg(pos)} is selected. Now click destination.`);
             }
         }else {
             // No sprite at the clicked spot.
             if (selectedSprite) {
                 tryMove(state, selectedSprite, pos);
+                showMessage("OK. Click the piece you want to move.")
             } else {
                 throw "Click a location with a piece to move."
             }
         }
     } catch (error) {
-        showMessage(`Err: ${error}, deselecting.`);
+        showMessage(`${error}`);
         selectedSprite = SpriteId.None;
     }
 }
@@ -1229,3 +1243,13 @@ function atts(color: string) : string {
     }
 }
 
+// Return a list of legal move, in algebraic notation.
+function allm() : string {
+    try {
+        let turns = allLegalMoves(state);
+        let algs = turns.map((turn) => turn2notation(state, turn));
+        return algs.join(" ");
+    } catch (error) {
+        return `Error: ${error}`;
+    }
+}

@@ -322,6 +322,9 @@ function setStateSpriteId(aState, pos, spriteNum) {
     let [file, rank] = pos;
     aState.squareSprites[rank2boardRow(rank)][file] = spriteNum;
 }
+function getStatePos(aState, sprite) {
+    return aState.spriteStateInfo[sprite].position;
+}
 function resetView() {
     // First clear the whole board.
     view.squareElements.forEach(row => {
@@ -370,6 +373,7 @@ function myLoaded() {
             processCommand();
         }
     });
+    showMessage("Click the piece you want to move.");
 }
 function outOfRange(arg) {
     if (typeof arg == "number") {
@@ -913,11 +917,13 @@ function anyLegalMoves(aState) {
     let info = aState.spriteStateInfo;
     for (const sprite of active) {
         let pos = info[sprite].position;
-        let turns = potentialMoves(true, true, pos, aState);
-        let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, pos);
-        if (turn != null) {
-            // We found a legal move.
-            return true;
+        let turns = potentialMoves(false, false, pos, aState);
+        for (const { primary: { to: dest } } of turns) {
+            let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, dest);
+            if (turn != null) {
+                // We found a legal move.
+                return true;
+            }
         }
     }
     return false;
@@ -931,11 +937,13 @@ function allLegalMoves(aState) {
     let info = aState.spriteStateInfo;
     for (const sprite of active) {
         let pos = info[sprite].position;
-        let turns = potentialMoves(true, true, pos, aState);
-        let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, pos);
-        if (turn != null) {
-            // We found a legal move.
-            result.push(turn);
+        let turns = potentialMoves(false, false, pos, aState);
+        for (const { primary: { to: dest } } of turns) {
+            let [turn, newState, changedLocations, why] = isLegalMove(aState, sprite, dest);
+            if (turn != null) {
+                // We found a legal move.
+                result.push(turn);
+            }
         }
     }
     return result;
@@ -969,10 +977,12 @@ function tryMove(aState, sprite, pos) {
     selectedSprite = SpriteId.None;
     if (!anyLegalMoves(state)) {
         if (inCheck(state, state.whoseMove)) {
+            alert("Checkmate!!!");
             throw "Checkmate!!!";
         }
         else {
-            throw "Stalemate";
+            alert("Statemate!");
+            throw "Stalemate.";
         }
     }
 }
@@ -1000,17 +1010,20 @@ function doClick(file, rank) {
                 }
                 else {
                     tryMove(state, selectedSprite, pos);
+                    showMessage("OK. Click the piece you want to move.");
                 }
             }
             else {
                 // No sprite selected.
                 selectedSprite = sprite;
+                showMessage(`Piece at ${pos2alg(pos)} is selected. Now click destination.`);
             }
         }
         else {
             // No sprite at the clicked spot.
             if (selectedSprite) {
                 tryMove(state, selectedSprite, pos);
+                showMessage("OK. Click the piece you want to move.");
             }
             else {
                 throw "Click a location with a piece to move.";
@@ -1018,7 +1031,7 @@ function doClick(file, rank) {
         }
     }
     catch (error) {
-        showMessage(`Err: ${error}, deselecting.`);
+        showMessage(`${error}`);
         selectedSprite = SpriteId.None;
     }
 }
@@ -1089,6 +1102,17 @@ function atts(color) {
         let clr = Clr[color];
         let locs = attackedLocs(state, clr).sort();
         return locs.join(" ");
+    }
+    catch (error) {
+        return `Error: ${error}`;
+    }
+}
+// Return a list of legal move, in algebraic notation.
+function allm() {
+    try {
+        let turns = allLegalMoves(state);
+        let algs = turns.map((turn) => turn2notation(state, turn));
+        return algs.join(" ");
     }
     catch (error) {
         return `Error: ${error}`;
