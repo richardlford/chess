@@ -345,7 +345,6 @@ function makeRegularRow(rank: number) : HTMLElement {
     return tr;
 }
 
-
 function addMoveRecordRow() {
     let num = view.moveRecord.length + 1;
     const moveTable = document.getElementById("moves");
@@ -364,15 +363,34 @@ function addMoveRecordRow() {
 
 function recordMove(aState: StateType, turn: Turn) {
     let num = aState.moveNumber;
-    if ((view.moveRecord.length < num) || (aState.whoseMove == Clr.b)) {
+    if ((view.moveRecord.length < num) || 
+        ((view.moveRecord.length == num) && (aState.whoseMove == Clr.b))) {
         addMoveRecordRow();
     }
     let recoreRow = view.moveRecord[num -1];
-    let item = recoreRow[aState.whoseMove];
     let whose = aState.whoseMove;
+    let item = recoreRow[whose];
     let part0 = `${num}${Clr[whose]}: `
     let notation = part0 + turn2notation(aState, turn);
     item.innerHTML = notation;
+}
+
+// Erase move records so that it looks like the given state is
+// about to move.
+function undoMoveRecords(aState: StateType) {
+    let num = aState.moveNumber;
+    let startRow = num -1;
+    let startcolor = aState.whoseMove;
+    let records = view.moveRecord;
+    for (let rowIndex = startRow; rowIndex < records.length; rowIndex++) {
+        const row = records[rowIndex];
+        for (let colorIndex = Clr.w; colorIndex <= Clr.b; colorIndex++) {
+            const element = row[colorIndex];
+            if ((rowIndex > startRow) || (colorIndex >= startcolor)) {
+                element.innerHTML = `${rowIndex+1}${Clr[colorIndex]}: `
+            }
+        }
+    }
 }
 
 // Once-only initalization of the view object.
@@ -1252,4 +1270,23 @@ function allm() : string {
     } catch (error) {
         return `Error: ${error}`;
     }
+}
+
+function undo() {
+    if (states.length == 1) {
+        return; // Nothing to undo.
+    }
+    if (stateIndex == (states.length - 1)){
+        // We are currently displaying the last move. Just undo last.
+        states.pop();
+    }else {
+        // We are viewing an earlier move. Switch to that one.
+        while (stateIndex < (states.length - 1)) {
+            states.pop();
+        }
+    }
+    stateIndex = states.length - 1;
+    state = states[stateIndex];
+    undoMoveRecords(state);
+    updateAll(state);
 }
